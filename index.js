@@ -13,10 +13,11 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3014;
 const FREE_QUOTA = 50;
 
+console.log(`[DEBUG] HOST variable from .env is: "${process.env.HOST}"`);
+
 // --- Shopify API Library Initialization ---
 const shopify = shopifyApi({
-    ...nodeDefaults, // <-- Step 2: Apply the adapter
-
+  ...nodeDefaults, // <-- Step 2: Apply the adapter
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: ['read_products'],
