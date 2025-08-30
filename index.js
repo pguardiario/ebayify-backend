@@ -15,11 +15,12 @@ const PORT = process.env.PORT || 3000;
 const FREE_QUOTA = 50;
 
 // --- Shopify API Library Initialization ---
-// This part is confirmed to be correct.
 const shopify = shopifyApi({
   ...nodeDefaults,
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
+  // NOTE: The `scopes` property was re-added as it is required by the library's config validator.
+  // It was the RegExp route that fixed the startup error.
   scopes: ['read_products'],
   hostName: process.env.HOST,
   apiVersion: LATEST_API_VERSION,
@@ -62,26 +63,40 @@ async function getEbayToken() {
 // --- Middleware ---
 app.use(express.json());
 
-// --- Shopify Authentication Middleware ---
+// --- Shopify Authentication Middleware with Enhanced Logging ---
 const verifyRequest = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
         if (!authHeader) {
+            // --- NEW LOGGING ---
+            console.warn(`[AUTH_MIDDLEWARE] Failed: Missing authorization header. IP: ${req.ip}`);
             return res.status(401).send('Unauthorized: Missing authorization header');
         }
         const token = authHeader.split(' ')[1];
         const session = await shopify.session.decodeSessionToken(token);
         req.shop = session.dest.replace('https://', '');
+
+        // --- NEW LOGGING ---
+        console.log(`[AUTH_MIDDLEWARE] Success: Verified request for shop: ${req.shop}`);
         return next();
     } catch (error) {
-        console.error('Failed to validate session token:', error.message);
+        // --- ENHANCED LOGGING ---
+        console.error(`[AUTH_MIDDLEWARE] Error: Failed to validate session token. Reason: ${error.message}`);
         return res.status(401).send('Unauthorized: Invalid session token');
     }
 };
 
-// Protect all API routes
-// app.use('/api/*', verifyRequest);
-app.use(/\/api\/(.*)/, verifyRequest);
+// =================================================================
+// --- NEW LOGGING MIDDLEWARE ---
+// This will run for all API requests after authentication
+// =================================================================
+const logApiRequest = (req, res, next) => {
+    console.log(`[API_REQUEST] Shop: ${req.shop} is requesting ${req.method} ${req.originalUrl}`);
+    next();
+};
+
+// Protect all API routes and apply our new logger
+app.use(/\/api\/(.*)/, verifyRequest, logApiRequest);
 
 
 // --- Endpoint to Save Shop Settings ---
@@ -101,9 +116,11 @@ app.post('/api/save-settings', async (req, res) => {
             update: { ebaySellerUsername },
             create: { shopDomain, ebaySellerUsername, quotaResetDate: thirtyDaysFromNow },
         });
+        console.log(`[SAVE_SETTINGS] Successfully saved settings for shop: ${shopDomain}`);
         res.status(200).json({ success: true, message: "eBay seller username has been saved." });
     } catch (error) {
-        console.error('Error in save-settings:', error);
+        // --- ENHANCED LOGGING ---
+        console.error(`[SAVE_SETTINGS] Error for shop ${shopDomain}:`, error);
         res.status(500).json({ error: 'Failed to save settings.' });
     }
 });
@@ -117,10 +134,13 @@ app.post('/api/ebay-lookup', async (req, res) => {
         let shop = await prisma.shop.findUnique({ where: { shopDomain } });
 
         if (!shop || !shop.ebaySellerUsername) {
+            console.warn(`[EBAY_LOOKUP] Failed: Shop ${shopDomain} has not configured a seller username.`);
             return res.status(400).json({ error: 'eBay seller username is not configured.' });
         }
 
+        // ... (Quota checking logic remains the same) ...
         if (new Date() > shop.quotaResetDate) {
+            console.log(`[EBAY_LOOKUP] Resetting API quota for shop: ${shopDomain}`);
             const newResetDate = new Date();
             newResetDate.setDate(newResetDate.getDate() + 30);
             shop = await prisma.shop.update({
@@ -129,21 +149,21 @@ app.post('/api/ebay-lookup', async (req, res) => {
             });
         }
         if (shop.apiLookupsUsed >= FREE_QUOTA) {
+            console.warn(`[EBAY_LOOKUP] Quota exceeded for shop: ${shopDomain}`);
             return res.status(429).json({ error: 'Monthly free quota exceeded.' });
         }
 
+        console.log(`[EBAY_LOOKUP] Fetching new eBay token for request from ${shopDomain}`);
         const ebayAccessToken = await getEbayToken();
 
-        // =================================================================
-        // --- THIS IS THE FIX: Removed the extra "new" ---
         const params = new URLSearchParams({
             'filter': `sellers:{${shop.ebaySellerUsername}}`,
             'limit': limit,
             'offset': offset
         });
-        // =================================================================
 
         const ebayApiUrl = `https://api.ebay.com/buy/browse/v1/item_summary/search?${params.toString()}`;
+        console.log(`[EBAY_LOOKUP] Proxying request for ${shopDomain} to ${ebayApiUrl}`);
 
         const response = await fetch(ebayApiUrl, {
             headers: {
@@ -154,7 +174,8 @@ app.post('/api/ebay-lookup', async (req, res) => {
 
         if (!response.ok) {
             const errorBody = await response.text();
-            console.error(`eBay API failed with status: ${response.status}`, errorBody);
+            // --- ENHANCED LOGGING ---
+            console.error(`[EBAY_LOOKUP] eBay API failed for shop ${shopDomain} with status: ${response.status}`, errorBody);
             throw new Error(`eBay API failed with status: ${response.status}`);
         }
 
@@ -165,15 +186,15 @@ app.post('/api/ebay-lookup', async (req, res) => {
             data: { apiLookupsUsed: { increment: 1 } },
         });
 
+        console.log(`[EBAY_LOOKUP] Successfully served request for shop: ${shopDomain}. Items found: ${ebayData.itemSummaries?.length || 0}`);
         res.status(200).json(ebayData);
 
     } catch (error) {
-        console.error('An error occurred during ebay-lookup:', error.message);
+        // --- ENHANCED LOGGING ---
+        console.error(`[EBAY_LOOKUP] An error occurred for shop ${shopDomain}:`, error.message);
         res.status(500).json({ error: 'An internal server error occurred.' });
     }
 });
-
-// console.log(app._router.stack.map(r => r.route ? r.route.path : null).filter(Boolean));
 
 
 // --- Start The Server ---
