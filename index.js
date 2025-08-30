@@ -7,30 +7,42 @@ require('dotenv').config();
 const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 const { nodeDefaults } = require('@shopify/shopify-api/adapters/node');
 
+
 // --- Initializations ---
 const app = express();
 const prisma = new PrismaClient();
-const PORT = process.env.PORT || 3014;
+const PORT = process.env.PORT || 3000;
 const FREE_QUOTA = 50;
 
-console.log(`[DEBUG] HOST variable from .env is: "${process.env.HOST}"`);
+// =================================================================
+// --- STEP 1: DEBUG AND VALIDATE ALL CONFIG VARIABLES ---
+// =================================================================
+console.log(`[DEBUG] HOST variable is: "${process.env.HOST}"`);
+console.log(`[DEBUG] SHOPIFY_API_KEY variable is: "${process.env.SHOPIFY_API_KEY}"`);
+console.log(`[DEBUG] SHOPIFY_API_SECRET variable is: "${process.env.SHOPIFY_API_SECRET}"`);
+
+if (!process.env.HOST || !process.env.SHOPIFY_API_KEY || !process.env.SHOPIFY_API_SECRET) {
+    console.error("\nFATAL ERROR: One or more required environment variables for Shopify are missing.");
+    console.error("Please check your .env file and ensure HOST, SHOPIFY_API_KEY, and SHOPIFY_API_SECRET are all set correctly.\n");
+    process.exit(1); // Stop the script immediately
+}
+
 
 // --- Shopify API Library Initialization ---
 const shopify = shopifyApi({
-  ...nodeDefaults, // <-- Step 2: Apply the adapter
+  ...nodeDefaults,
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: ['read_products'],
-  hostName: 'ebayify.fiery.tools',
+  hostName: process.env.HOST,
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
 });
 
-// =================================================================
-// --- EBAY TOKEN FUNCTION (Your provided, correct function) ---
-// =================================================================
+
+// --- EBAY TOKEN FUNCTION ---
 async function getEbayToken() {
-    const useSandbox = false; // <-- PRODUCTION SWITCH
+    const useSandbox = false;
     const clientId = process.env.EBAY_API_ID;
     const clientSecret = process.env.EBAY_API_SECRET;
 
@@ -59,7 +71,6 @@ async function getEbayToken() {
     const data = await response.json();
     return data.access_token;
 }
-
 
 // --- Middleware ---
 app.use(express.json());
@@ -108,7 +119,7 @@ app.post('/api/save-settings', async (req, res) => {
     }
 });
 
-// --- The CORRECTED "Passthrough" Lookup Endpoint ---
+// --- "Passthrough" Lookup Endpoint ---
 app.post('/api/ebay-lookup', async (req, res) => {
     const shopDomain = req.shop;
     const { limit = 50, offset = 0 } = req.body;
@@ -120,7 +131,6 @@ app.post('/api/ebay-lookup', async (req, res) => {
             return res.status(400).json({ error: 'eBay seller username is not configured.' });
         }
 
-        // (Quota checking logic remains the same)
         if (new Date() > shop.quotaResetDate) {
             const newResetDate = new Date();
             newResetDate.setDate(newResetDate.getDate() + 30);
@@ -133,11 +143,7 @@ app.post('/api/ebay-lookup', async (req, res) => {
             return res.status(429).json({ error: 'Monthly free quota exceeded.' });
         }
 
-        // --- THE KEY CHANGE IS HERE ---
-        // Step 1: Get a fresh application access token from eBay.
         const ebayAccessToken = await getEbayToken();
-
-        // Step 2: Use that token to make the API call.
         const params = new URLSearchParams({
             'filter': `sellers:{${shop.ebaySellerUsername}}`,
             'limit': limit,
@@ -147,7 +153,7 @@ app.post('/api/ebay-lookup', async (req, res) => {
 
         const response = await fetch(ebayApiUrl, {
             headers: {
-                'Authorization': `Bearer ${ebayAccessToken}`, // Use the freshly obtained token
+                'Authorization': `Bearer ${ebayAccessToken}`,
                 'Content-Type': 'application/json',
             },
         });
@@ -160,7 +166,6 @@ app.post('/api/ebay-lookup', async (req, res) => {
 
         const ebayData = await response.json();
 
-        // (Incrementing quota and sending response remains the same)
         await prisma.shop.update({
             where: { shopDomain },
             data: { apiLookupsUsed: { increment: 1 } },
