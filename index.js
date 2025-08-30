@@ -10,7 +10,7 @@ const { nodeDefaults } = require('@shopify/shopify-api/adapters/node');
 // --- Initializations ---
 const app = express();
 const prisma = new PrismaClient();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3014;
 const FREE_QUOTA = 50;
 
 // --- Shopify API Library Initialization ---
