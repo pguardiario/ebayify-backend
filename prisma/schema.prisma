@@ -1,0 +1,24 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Shop {
+  id                 Int      @id @default(autoincrement())
+  shopDomain         String   @unique
+  ebaySellerUsername String?  // We still need to know which seller to look up
+
+  apiLookupsUsed     Int      @default(0)
+  quotaResetDate     DateTime
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("shops")
+}

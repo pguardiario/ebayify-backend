@@ -1,0 +1,9 @@
+POST /api/ebay-lookup HTTP/1.1
+Host: your-app-backend-url.com
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkZXN0IjoiaHR0cHM6Ly9zb21lLXN0b3JlLm15c2hvcGlmeS5jb20iLCJleHAiOjE2OTM0NTY3ODl9.SOME_VALID_SIGNATURE_FROM_SHOPIFY
+
+{
+  "limit": 50,
+  "offset": 0
+}
