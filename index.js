@@ -5,6 +5,7 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 require('dotenv').config();
 const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
+const { nodeDefaults } = require('@shopify/shopify-api/adapters/node');
 
 // --- Initializations ---
 const app = express();
@@ -17,7 +18,7 @@ const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: ['read_products'],
-  hostName: 'your-ngrok-or-production-url.com',
+  hostName: 'ebayify.fiery.tools',
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
 });
