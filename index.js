@@ -80,7 +80,9 @@ const verifyRequest = async (req, res, next) => {
 };
 
 // Protect all API routes
-app.use('/api/*', verifyRequest);
+// app.use('/api/*', verifyRequest);
+app.use(/\/api\/(.*)/, verifyRequest);
+
 
 // --- Endpoint to Save Shop Settings ---
 app.post('/api/save-settings', async (req, res) => {
@@ -170,6 +172,9 @@ app.post('/api/ebay-lookup', async (req, res) => {
         res.status(500).json({ error: 'An internal server error occurred.' });
     }
 });
+
+// console.log(app._router.stack.map(r => r.route ? r.route.path : null).filter(Boolean));
+
 
 // --- Start The Server ---
 app.listen(PORT, () => {
