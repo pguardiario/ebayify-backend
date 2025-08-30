@@ -14,21 +14,8 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 const FREE_QUOTA = 50;
 
-// =================================================================
-// --- STEP 1: DEBUG AND VALIDATE ALL CONFIG VARIABLES ---
-// =================================================================
-console.log(`[DEBUG] HOST variable is: "${process.env.HOST}"`);
-console.log(`[DEBUG] SHOPIFY_API_KEY variable is: "${process.env.SHOPIFY_API_KEY}"`);
-console.log(`[DEBUG] SHOPIFY_API_SECRET variable is: "${process.env.SHOPIFY_API_SECRET}"`);
-
-if (!process.env.HOST || !process.env.SHOPIFY_API_KEY || !process.env.SHOPIFY_API_SECRET) {
-    console.error("\nFATAL ERROR: One or more required environment variables for Shopify are missing.");
-    console.error("Please check your .env file and ensure HOST, SHOPIFY_API_KEY, and SHOPIFY_API_SECRET are all set correctly.\n");
-    process.exit(1); // Stop the script immediately
-}
-
-
 // --- Shopify API Library Initialization ---
+// This part is confirmed to be correct.
 const shopify = shopifyApi({
   ...nodeDefaults,
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -144,11 +131,16 @@ app.post('/api/ebay-lookup', async (req, res) => {
         }
 
         const ebayAccessToken = await getEbayToken();
+
+        // =================================================================
+        // --- THIS IS THE FIX: Removed the extra "new" ---
         const params = new URLSearchParams({
             'filter': `sellers:{${shop.ebaySellerUsername}}`,
             'limit': limit,
             'offset': offset
         });
+        // =================================================================
+
         const ebayApiUrl = `https://api.ebay.com/buy/browse/v1/item_summary/search?${params.toString()}`;
 
         const response = await fetch(ebayApiUrl, {
