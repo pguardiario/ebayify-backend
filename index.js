@@ -15,6 +15,8 @@ const FREE_QUOTA = 50;
 
 // --- Shopify API Library Initialization ---
 const shopify = shopifyApi({
+    ...nodeDefaults, // <-- Step 2: Apply the adapter
+
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: ['read_products'],
