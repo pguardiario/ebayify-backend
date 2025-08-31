@@ -12,7 +12,8 @@ datasource db {
 model Shop {
   id                 Int      @id @default(autoincrement())
   shopDomain         String   @unique
-  ebaySellerUsername String?  // We still need to know which seller to look up
+  ebaySellerUsername String?
+  plan               String   @default("FREE") // <-- ADD THIS LINE
 
   apiLookupsUsed     Int      @default(0)
   quotaResetDate     DateTime

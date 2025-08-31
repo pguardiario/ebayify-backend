@@ -7,6 +7,7 @@ require('dotenv').config();
 const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 const { nodeDefaults } = require('@shopify/shopify-api/adapters/node');
 const cors = require('cors'); // <-- 1. IMPORT CORS
+const { PLANS } = require('./lib/plans'); // <-- 1. IMPORT YOUR PLANS
 
 
 // --- Initializations ---
@@ -138,7 +139,7 @@ app.get('/api/settings', async (req, res) => {
     res.status(200).json(shop);
 });
 
-// --- "Passthrough" Lookup Endpoint ---
+// --- "Passthrough" Lookup Endpoint (Now with dynamic quota) ---
 app.post('/api/ebay-lookup', async (req, res) => {
     const shopDomain = req.shop;
     const { limit = 50, offset = 0 } = req.body;
@@ -147,13 +148,17 @@ app.post('/api/ebay-lookup', async (req, res) => {
         let shop = await prisma.shop.findUnique({ where: { shopDomain } });
 
         if (!shop || !shop.ebaySellerUsername) {
-            console.warn(`[EBAY_LOOKUP] Failed: Shop ${shopDomain} has not configured a seller username.`);
             return res.status(400).json({ error: 'eBay seller username is not configured.' });
         }
 
-        // ... (Quota checking logic remains the same) ...
+        // =================================================================
+        // --- 3. DYNAMIC QUOTA LOGIC ---
+        // =================================================================
+        // Get the current plan from the shop's record. Default to FREE if something is wrong.
+        const currentPlan = PLANS[shop.plan] || PLANS.FREE;
+        const quotaLimit = currentPlan.quota;
+
         if (new Date() > shop.quotaResetDate) {
-            console.log(`[EBAY_LOOKUP] Resetting API quota for shop: ${shopDomain}`);
             const newResetDate = new Date();
             newResetDate.setDate(newResetDate.getDate() + 30);
             shop = await prisma.shop.update({
@@ -161,12 +166,16 @@ app.post('/api/ebay-lookup', async (req, res) => {
                 data: { apiLookupsUsed: 0, quotaResetDate: newResetDate },
             });
         }
-        if (shop.apiLookupsUsed >= FREE_QUOTA) {
-            console.warn(`[EBAY_LOOKUP] Quota exceeded for shop: ${shopDomain}`);
-            return res.status(429).json({ error: 'Monthly free quota exceeded.' });
+
+        // Compare usage against the dynamic quota limit
+        if (shop.apiLookupsUsed >= quotaLimit) {
+            return res.status(429).json({
+                error: `Monthly quota for your '${currentPlan.name}' plan exceeded.`,
+                used: shop.apiLookupsUsed,
+                limit: quotaLimit,
+            });
         }
 
-        console.log(`[EBAY_LOOKUP] Fetching new eBay token for request from ${shopDomain}`);
         const ebayAccessToken = await getEbayToken();
 
         const params = new URLSearchParams({
@@ -176,7 +185,6 @@ app.post('/api/ebay-lookup', async (req, res) => {
         });
 
         const ebayApiUrl = `https://api.ebay.com/buy/browse/v1/item_summary/search?${params.toString()}`;
-        console.log(`[EBAY_LOOKUP] Proxying request for ${shopDomain} to ${ebayApiUrl}`);
 
         const response = await fetch(ebayApiUrl, {
             headers: {
@@ -187,9 +195,8 @@ app.post('/api/ebay-lookup', async (req, res) => {
 
         if (!response.ok) {
             const errorBody = await response.text();
-            // --- ENHANCED LOGGING ---
-            console.error(`[EBAY_LOOKUP] eBay API failed for shop ${shopDomain} with status: ${response.status}`, errorBody);
-            throw new Error(`eBay API failed with status: ${response.status}`);
+            console.error(`eBay API failed with status: ` + response.status, errorBody);
+            throw new Error(`eBay API failed with status: ` + response.status);
         }
 
         const ebayData = await response.json();
@@ -199,12 +206,10 @@ app.post('/api/ebay-lookup', async (req, res) => {
             data: { apiLookupsUsed: { increment: 1 } },
         });
 
-        console.log(`[EBAY_LOOKUP] Successfully served request for shop: ${shopDomain}. Items found: ${ebayData.itemSummaries?.length || 0}`);
         res.status(200).json(ebayData);
 
     } catch (error) {
-        // --- ENHANCED LOGGING ---
-        console.error(`[EBAY_LOOKUP] An error occurred for shop ${shopDomain}:`, error.message);
+        console.error('An error occurred during ebay-lookup:', error.message);
         res.status(500).json({ error: 'An internal server error occurred.' });
     }
 });
