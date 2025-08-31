@@ -63,6 +63,7 @@ async function getEbayToken() {
 
 
 app.use(cors());
+app.use(express.json());
 
 // --- Shopify Authentication Middleware with Enhanced Logging ---
 const verifyRequest = async (req, res, next) => {
