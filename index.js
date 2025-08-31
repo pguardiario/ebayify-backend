@@ -6,6 +6,7 @@ const { PrismaClient } = require('@prisma/client');
 require('dotenv').config();
 const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 const { nodeDefaults } = require('@shopify/shopify-api/adapters/node');
+const cors = require('cors'); // <-- 1. IMPORT CORS
 
 
 // --- Initializations ---
@@ -62,6 +63,13 @@ async function getEbayToken() {
 
 // --- Middleware ---
 app.use(express.json());
+const corsOptions = {
+    origin: [
+        'https://admin.shopify.com',
+        new RegExp('^https://[a-zA-Z0-9-]+.myshopify.com$'),
+    ],
+};
+app.use(cors(corsOptions));
 
 // --- Shopify Authentication Middleware with Enhanced Logging ---
 const verifyRequest = async (req, res, next) => {
