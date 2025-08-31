@@ -61,15 +61,8 @@ async function getEbayToken() {
     return data.access_token;
 }
 
-// --- Middleware ---
-app.use(express.json());
-const corsOptions = {
-    origin: [
-        'https://admin.shopify.com',
-        new RegExp('^https://[a-zA-Z0-9-]+.myshopify.com$'),
-    ],
-};
-app.use(cors(corsOptions));
+
+app.use(cors());
 
 // --- Shopify Authentication Middleware with Enhanced Logging ---
 const verifyRequest = async (req, res, next) => {
