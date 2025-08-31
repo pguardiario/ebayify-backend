@@ -127,6 +127,17 @@ app.post('/api/save-settings', async (req, res) => {
     }
 });
 
+// --- Endpoint to fetch Settings ---
+app.get('/api/settings', async (req, res) => {
+    const shopDomain = req.shop;
+
+    let shop = await prisma.shop.findFirst({
+      where: { shopDomain },
+    });
+
+    res.status(200).json(shop);
+});
+
 // --- "Passthrough" Lookup Endpoint ---
 app.post('/api/ebay-lookup', async (req, res) => {
     const shopDomain = req.shop;
