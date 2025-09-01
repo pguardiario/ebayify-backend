@@ -15,7 +15,8 @@ model Shop {
   ebaySellerUsername String?
   plan               String   @default("FREE") // <-- ADD THIS LINE
 
-  apiLookupsUsed     Int      @default(0)
+  productsSyncedThisMonth Int @default(0) // RENAME THIS FIELD
+  shopifyAccessToken String?
   quotaResetDate     DateTime
 
   createdAt          DateTime @default(now())
