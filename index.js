@@ -8,10 +8,8 @@ const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 const { nodeDefaults } = require('@shopify/shopify-api/adapters/node');
 const cors = require('cors'); // <-- 1. IMPORT CORS
 const { PLANS } = require('./lib/plans'); // <-- 1. IMPORT YOUR PLANS
-const { createShopifyProduct } = require('./lib/remix-proxy'); // <-- 1. IMPORT PROXY FUNCTION
+// const { createShopifyProduct } = require('./lib/remix-proxy'); // <-- 1. IMPORT PROXY FUNCTION
 
-const { decrypt } = require('./lib/crypto'); // We only need decrypt in this file now
-const authRoutes = require('./routes/auth'); // <-- 1. IMPORT THE NEW AUTH ROUTER
 
 // --- Initializations ---
 const app = express();
@@ -68,13 +66,6 @@ async function getEbayToken() {
 
 app.use(cors());
 app.use(express.json());
-
-// 2. Middleware to pass the initialized Shopify object to the auth router
-app.use('/auth', (req, res, next) => {
-    res.locals.shopify = shopify;
-    next();
-}, authRoutes); // 3. USE THE AUTH ROUTER for all /auth paths
-
 
 // --- Shopify Authentication Middleware with Enhanced Logging ---
 const verifyRequest = async (req, res, next) => {
