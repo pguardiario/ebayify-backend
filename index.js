@@ -11,6 +11,10 @@ const { PLANS } = require('./lib/plans'); // <-- 1. IMPORT YOUR PLANS
 // const { createShopifyProduct } = require('./lib/remix-proxy'); // <-- 1. IMPORT PROXY FUNCTION
 
 
+const crypto = require('crypto'); // Add this import
+const { importQueue } = require('./lib/import-queue'); // Import the queue
+const { getEbayToken } = require('./lib/ebay-token-helper'); // <-- ADD THIS LINE
+
 // --- Initializations ---
 const app = express();
 const prisma = new PrismaClient();
@@ -29,40 +33,6 @@ const shopify = shopifyApi({
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
 });
-
-
-// --- EBAY TOKEN FUNCTION ---
-async function getEbayToken() {
-    const useSandbox = false;
-    const clientId = process.env.EBAY_API_ID;
-    const clientSecret = process.env.EBAY_API_SECRET;
-
-    if (!clientId || !clientSecret) {
-        throw new Error('eBay API credentials are not defined in .env file.');
-    }
-
-    const authUrl = useSandbox ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token' : 'https://api.ebay.com/identity/v1/oauth2/token';
-    const encodedCredentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-
-    const response = await fetch(authUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${encodedCredentials}`,
-        },
-        body: 'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope',
-    });
-
-    if (!response.ok) {
-        const errorBody = await response.text();
-        console.error("Failed to get eBay token:", errorBody);
-        throw new Error('Failed to get eBay token');
-    }
-
-    const data = await response.json();
-    return data.access_token;
-}
-
 
 app.use(cors());
 app.use(express.json());
@@ -140,6 +110,72 @@ app.get('/api/settings', async (req, res) => {
     res.status(200).json(shop);
 });
 
+app.get('/api/import-preview', async (req, res) => {
+    const shopDomain = req.shop;
+    console.log(`[IMPORT_PREVIEW] Received request for shop: ${shopDomain}`);
+
+    try {
+        const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+
+        if (!shop || !shop.ebaySellerUsername) {
+            return res.status(400).json({ error: 'eBay seller username is not configured.' });
+        }
+
+        // We only need the first item to get a sample, so we fetch with a limit of 1.
+        const ebayAccessToken = await getEbayToken();
+        const params = new URLSearchParams({
+            'q': 'e',
+
+            'filter': `sellers:{${shop.ebaySellerUsername}}`,
+            'limit': 1, // Only need one item for the sample
+            'offset': 0
+        });
+
+        const ebayApiUrl = `https://api.ebay.com/buy/browse/v1/item_summary/search?${params.toString()}`;
+
+        console.info('ebayApiUrl')
+
+        const response = await fetch(ebayApiUrl, {
+            headers: {
+                'Authorization': `Bearer ${ebayAccessToken}`,
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error(`[IMPORT_PREVIEW] eBay API failed for shop ${shopDomain} with status: ${response.status}`, errorBody);
+            throw new Error(`eBay API failed with status: ${response.status}`);
+        }
+
+        const ebayData = await response.json();
+
+        // Check if there are any items to sample
+        if (!ebayData.itemSummaries || ebayData.itemSummaries.length === 0) {
+            return res.status(200).json({ totalItems: 0, sampleItem: null });
+        }
+
+        const firstItem = ebayData.itemSummaries[0];
+
+        // Transform the data into the desired format
+        const responsePayload = {
+            totalItems: ebayData.total || 0,
+            sampleItem: {
+                title: firstItem.title,
+                price: firstItem.price?.value || "N/A",
+                imageUrl: firstItem.image?.imageUrl || "https://example.com/placeholder.jpg",
+                category: firstItem.categories?.[0]?.categoryName || "Uncategorized",
+            }
+        };
+
+        res.status(200).json(responsePayload);
+
+    } catch (error) {
+        console.error(`[IMPORT_PREVIEW] An error occurred for shop ${shopDomain}:`, error.message);
+        res.status(500).json({ error: 'An internal server error occurred.' });
+    }
+});
+
 // --- "Passthrough" Lookup Endpoint (Now with dynamic quota) ---
 app.post('/api/ebay-lookup', async (req, res) => {
     const shopDomain = req.shop;
@@ -215,6 +251,61 @@ app.post('/api/ebay-lookup', async (req, res) => {
     }
 });
 
+app.post('/api/begin-import', async (req, res) => {
+    const shopDomain = req.shop;
+    const importOptions = req.body; // { syncStrategy, sortOrder, etc. }
+
+    console.log(`[BEGIN_IMPORT] Received request for shop: ${shopDomain}`);
+
+    try {
+        const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+        if (!shop || !shop.ebaySellerUsername) {
+            return res.status(400).json({ error: 'eBay seller username is not configured.' });
+        }
+
+        // 1. Fetch the first page to get the total count
+        const ebayAccessToken = await getEbayToken();
+        const params = new URLSearchParams({
+            'q': 'a',
+            'filter': `sellers:{${shop.ebaySellerUsername}}`,
+            'limit': 1,
+        });
+        const ebayApiUrl = `https://api.ebay.com/buy/browse/v1/item_summary/search?${params.toString()}`;
+        const response = await fetch(ebayApiUrl, {
+            headers: { 'Authorization': `Bearer ${ebayAccessToken}` },
+        });
+        const ebayData = await response.json();
+        const totalItems = ebayData.total || 0;
+
+        if (totalItems === 0) {
+            return res.status(200).json({ message: "No items found to import.", totalItems: 0 });
+        }
+
+        // 2. Create and add the job to the queue
+        const jobId = crypto.randomUUID();
+        const jobData = {
+            shopDomain,
+            ebaySellerUsername: shop.ebaySellerUsername,
+            total: totalItems,
+            importOptions,
+        };
+        await importQueue.add('import-job', jobData, { jobId });
+        console.log(`[BEGIN_IMPORT] Job ${jobId} added to queue for ${shopDomain}`);
+
+        // 3. Respond immediately to the client
+        const estimatedMinutes = Math.ceil((totalItems / 50) * 0.5 / 60); // Rough estimate
+        res.status(202).json({
+            jobId: jobId,
+            totalItems: totalItems,
+            eta: `${estimatedMinutes} minutes`,
+            message: `Import started for ${totalItems} items.`,
+        });
+
+    } catch (error) {
+        console.error(`[BEGIN_IMPORT] Error for shop ${shopDomain}:`, error.message);
+        res.status(500).json({ error: 'Failed to start import process.' });
+    }
+});
 
 // --- Start The Server ---
 app.listen(PORT, () => {

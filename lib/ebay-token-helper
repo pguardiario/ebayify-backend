@@ -1,0 +1,38 @@
+// lib/ebay-token-helper.js
+
+// Load environment variables right away to ensure they are available
+require('dotenv').config();
+
+async function getEbayToken() {
+    const useSandbox = false; // <-- PRODUCTION SWITCH
+    const clientId = process.env.EBAY_API_ID;
+    const clientSecret = process.env.EBAY_API_SECRET;
+
+    if (!clientId || !clientSecret) {
+        throw new Error('eBay API credentials (EBAY_API_ID, EBAY_API_SECRET) are not defined in .env file.');
+    }
+
+    const authUrl = useSandbox ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token' : 'https://api.ebay.com/identity/v1/oauth2/token';
+    const encodedCredentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+    const response = await fetch(authUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${encodedCredentials}`,
+        },
+        body: 'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope',
+    });
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        console.error("Failed to get eBay token:", errorBody);
+        throw new Error('Failed to get eBay token');
+    }
+
+    const data = await response.json();
+    return data.access_token;
+}
+
+module.exports = { getEbayToken };
+

@@ -1,1 +1,2 @@
 pm2 start index.js --name ebayify
+pm2 start worker.js --name ebayify-worker
